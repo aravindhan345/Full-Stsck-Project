@@ -1,0 +1,539 @@
+1. Book.java
+
+package com.example.libraryapp.model;
+
+import jakarta.persistence.*;
+import java.math.BigDecimal;
+
+@Entity
+@Table(name = "BOOKS")
+public class Book {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+    private BigDecimal price;
+    private int sold; // 0 = not sold, 1 = sold
+
+    public Book() {}
+
+    public Book(String name, BigDecimal price) {
+        this.name = name;
+        this.price = price;
+        this.sold = 0;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+
+    public int getSold() { return sold; }
+    public void setSold(int sold) { this.sold = sold; }
+
+    public boolean isSold() { return sold == 1; }
+    public void setSold(boolean b) { this.sold = b ? 1 : 0; }
+}
+
+
+2.User.java
+
+package com.example.libraryapp.model;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "USERS")
+public class User {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "user_seq")
+    @SequenceGenerator(name = "user_seq", sequenceName = "USER_SEQ", allocationSize = 1)
+    private Long id;
+
+    private String name;
+
+    private String phone;
+
+    // Oracle doesn't support boolean → use int
+    private int premium; // 1 = premium, 0 = normal
+
+    public User() {}
+
+    public User(String name, String phone, boolean premium) {
+        this.name = name;
+        this.phone = phone;
+        this.premium = premium ? 1 : 0;
+    }
+
+    public Long getId() { return id; }
+
+    public void setId(Long id) { this.id = id; }
+
+    public String getName() { return name; }
+
+    public void setName(String name) { this.name = name; }
+
+    public String getPhone() { return phone; }
+
+    public void setPhone(String phone) { this.phone = phone; }
+
+    public boolean isPremium() { return premium == 1; }
+
+    public void setPremium(boolean premium) { this.premium = premium ? 1 : 0; }
+}
+
+
+3. LibraryController.java
+
+package com.example.libraryapp.model.controller;
+
+import com.example.libraryapp.model.Book;
+import com.example.libraryapp.model.User;
+import com.example.libraryapp.model.service.LibraryService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api")
+public class LibraryController {
+    private final LibraryService svc;
+    public LibraryController(LibraryService svc){ this.svc = svc; }
+
+    @PostMapping("/users/register")
+    public ResponseEntity<?> register(@RequestBody Map<String, Object> body){
+        String name = (String) body.get("name");
+        String phone = (String) body.get("phone");
+        boolean premium = body.get("premium") != null && (Boolean) body.get("premium");
+        try {
+            User u = svc.registerUser(name, phone, premium);
+            return ResponseEntity.ok(u);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/users/login")
+    public ResponseEntity<?> login(@RequestBody Map<String,String> body){
+        String phone = body.get("phone");
+        return svc.login(phone)
+                .map(ResponseEntity::ok)
+                .orElseThrow();
+    }
+
+    @GetMapping("/books")
+    public List<Book> listBooks(){ return svc.listBooks(); }
+    
+    @GetMapping("/users")
+    public List<User> listUsers() {
+        return svc.listUsers();
+    }
+
+
+    @PostMapping("/books")
+    public ResponseEntity<?> addBook(@RequestBody Map<String,Object> body){
+        try {
+            String name = (String) body.get("name");
+            BigDecimal price = new BigDecimal(String.valueOf(body.get("price")));
+            Book b = svc.addBook(name, price);
+            return ResponseEntity.ok(b);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/books/{id}/buy")
+    public ResponseEntity<?> buy(@PathVariable Long id, @RequestBody Map<String,String> body){
+        String phone = body.get("phone");
+        try {
+            String res = svc.buyBook(id, phone);
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/books/{id}/read")
+    public ResponseEntity<?> read(@PathVariable Long id, @RequestBody Map<String,String> body){
+        String phone = body.get("phone");
+        try {
+            String res = svc.readInLibrary(id, phone);
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+}
+
+
+4. BookRepository.java
+
+package com.example.libraryapp.model.repository;
+
+import com.example.libraryapp.model.Book;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface BookRepository extends JpaRepository<Book, Long> {
+    long count();
+}
+
+
+5. UserRepository.java
+
+package com.example.libraryapp.model.repository;
+
+import com.example.libraryapp.model.User;
+import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.Optional;
+
+public interface UserRepository extends JpaRepository<User, Long> {
+    Optional<User> findByPhone(String phone);
+}
+
+
+6. LibraryService.java
+
+package com.example.libraryapp.model.service;
+
+import com.example.libraryapp.model.Book;
+import com.example.libraryapp.model.User;
+import com.example.libraryapp.model.repository.BookRepository;
+import com.example.libraryapp.model.repository.UserRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+public class LibraryService {
+    private final UserRepository userRepo;
+    private final BookRepository bookRepo;
+
+    public LibraryService(UserRepository userRepo, BookRepository bookRepo) {
+        this.userRepo = userRepo;
+        this.bookRepo = bookRepo;
+    }
+
+    // Register user
+    public User registerUser(String name, String phone, boolean premium) {
+        // check if phone already registered
+        if (userRepo.findByPhone(phone).isPresent()) {
+            throw new IllegalArgumentException("Phone already registered");
+        }
+        User u = new User(name, phone, premium);
+        return userRepo.save(u);
+    }
+
+    // Login by phone (returns user if exists)
+    public Optional<User> login(String phone) {
+        return userRepo.findByPhone(phone);
+    }
+
+    // ✅ Add a book
+    public Book addBook(String name, BigDecimal price) {
+        Book b = new Book(name, price);
+        return bookRepo.save(b);
+    }
+
+    // List all books
+    public List<Book> listBooks() {
+        return bookRepo.findAll();
+    }
+
+    // Buy book (only for premium users)
+    @Transactional
+    public String buyBook(Long bookId, String userPhone) {
+        User user = userRepo.findByPhone(userPhone)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (!user.isPremium()) {
+            return "Only premium users can buy books.";
+        }
+
+        Book book = bookRepo.findById(bookId)
+                .orElseThrow(() -> new IllegalArgumentException("Book not found"));
+
+        if (book.isSold()) {
+            return "Book already sold.";
+        }
+
+        book.setSold(true);
+        bookRepo.save(book);
+        return "Book purchased successfully: " + book.getName();
+    }
+
+    // Read book in library (allowed for all users)
+    public String readInLibrary(Long bookId, String userPhone) {
+        userRepo.findByPhone(userPhone)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        Book book = bookRepo.findById(bookId)
+                .orElseThrow(() -> new IllegalArgumentException("Book not found"));
+
+        return "You can read: " + book.getName();
+    }
+
+    public List<User> listUsers() {
+        return userRepo.findAll();
+    }
+
+}
+
+
+7. application.properties
+
+# Application name
+spring.application.name=LibraryManagementApplication
+
+# Oracle datasource
+spring.datasource.url=jdbc:oracle:thin:@localhost:1521:XE
+spring.datasource.username=hr
+spring.datasource.password=hr
+spring.datasource.driver-class-name=oracle.jdbc.OracleDriver
+
+# JPA / Hibernate settings
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.database-platform=org.hibernate.dialect.OracleDialect
+spring.jpa.show-sql=true
+
+# Server port
+server.port=8081
+
+
+8. data.sql
+
+INSERT INTO BOOKS (NAME, PRICE, SOLD) VALUES ('Java Basics', 199.00, 0);
+INSERT INTO BOOKS (NAME, PRICE, SOLD) VALUES ('Spring Boot Guide', 299.00, 0);
+INSERT INTO BOOKS (NAME, PRICE, SOLD) VALUES ('DBMS Concepts', 149.00, 0);
+INSERT INTO BOOKS (NAME, PRICE, SOLD) VALUES ('Algorithms in Java', 249.00, 0);
+INSERT INTO BOOKS (NAME, PRICE, SOLD) VALUES ('Web Development', 199.00, 0);
+COMMIT;
+
+
+9. schema.sql
+
+-- Drop existing objects safely
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE BOOKS CASCADE CONSTRAINTS';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP SEQUENCE BOOKS_SEQ1';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TRIGGER BOOKS_BI';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+
+-- Create BOOKS table
+CREATE TABLE BOOKS (
+   ID NUMBER PRIMARY KEY,
+   NAME VARCHAR2(255),
+   PRICE NUMBER(10,2),
+   SOLD NUMBER(1) DEFAULT 0
+);
+
+-- Create sequence
+CREATE SEQUENCE BOOKS_SEQ1 START WITH 1 INCREMENT BY 1 NOCACHE;
+
+-- Trigger for auto ID
+CREATE OR REPLACE TRIGGER BOOKS_BI
+BEFORE INSERT ON BOOKS
+FOR EACH ROW
+WHEN (NEW.ID IS NULL)
+BEGIN
+   SELECT BOOKS_SEQ1.NEXTVAL INTO :NEW.ID FROM DUAL;
+END;
+/
+
+-- USERS table
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE USERS CASCADE CONSTRAINTS';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP SEQUENCE USER_SEQ';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TRIGGER USERS_BI';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+
+CREATE TABLE USERS (
+   ID NUMBER PRIMARY KEY,
+   NAME VARCHAR2(255),
+   PHONE VARCHAR2(20) UNIQUE,
+   PREMIUM NUMBER(1) DEFAULT 0
+);
+
+CREATE SEQUENCE USER_SEQ START WITH 1 INCREMENT BY 1 NOCACHE;
+
+CREATE OR REPLACE TRIGGER USERS_BI
+BEFORE INSERT ON USERS
+FOR EACH ROW
+WHEN (NEW.ID IS NULL)
+BEGIN
+   SELECT USER_SEQ.NEXTVAL INTO :NEW.ID FROM DUAL;
+END;
+/
+
+
+POSTMAN :
+
+
+🧍‍♂️ 1. Register User (POST)
+
+URL:
+
+POST http://localhost:8081/api/users/register
+
+
+Body (raw → JSON):
+
+{
+  "name": "Santhosh",
+  "phone": "9876543210",
+  "premium": true
+}
+
+
+Expected Response:
+
+{
+  "id": 1,
+  "name": "Santhosh",
+  "phone": "9876543210",
+  "premium": true
+}
+
+
+
+🔑 2. Login User (POST)
+
+URL:
+
+POST http://localhost:8081/api/users/login
+
+
+Body:
+
+{
+  "phone": "9876543210"
+}
+
+
+Expected Response:
+
+{
+  "id": 1,
+  "name": "Santhosh",
+  "phone": "9876543210",
+  "premium": true
+}
+
+
+
+📚 3. List All Books (GET)
+
+URL:
+
+GET http://localhost:8081/api/books
+
+
+Expected Response:
+
+[
+  { "id": 1, "name": "Java Basics", "price": 199.00, "sold": 0 },
+  { "id": 2, "name": "Spring Boot Guide", "price": 299.00, "sold": 0 },
+  { "id": 3, "name": "DBMS Concepts", "price": 149.00, "sold": 0 }
+]
+
+
+
+➕ 4. Add New Book (POST)
+
+URL:
+
+POST http://localhost:8081/api/books
+
+
+Body:
+
+{
+  "name": "Microservices in Java",
+  "price": 399.00
+}
+
+
+Expected Response:
+
+{
+  "id": 6,
+  "name": "Microservices in Java",
+  "price": 399.00,
+  "sold": 0
+}
+
+
+💰 5. Buy a Book (POST)
+
+URL:
+
+POST http://localhost:8081/api/books/1/buy
+
+
+Body:
+
+{
+  "phone": "9876543210"
+}
+
+
+If premium user:
+
+"Book purchased successfully: Java Basics"
+
+
+If not premium:
+
+"Only premium users can buy books."
+
+
+
+📖 6. Read Book in Library (POST)
+
+URL:
+
+POST http://localhost:8081/api/books/2/read
+
+
+Body:
+
+{
+  "phone": "9876543210"
+}
+
+
+Expected Response:
+
+"You can read: Spring Boot Guide"
