@@ -1,0 +1,231 @@
+1. product management application.java
+
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ProductManagementApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(ProductManagementApplication.class, args);
+	}
+
+}
+
+2. product controller.java
+
+package com.example.demo.inventory.controller;
+
+import com.example.demo.inventory.entity.Product;
+import com.example.demo.inventory.service.ProductService;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/products")
+public class ProductController {
+
+    private final ProductService service;
+
+    public ProductController(ProductService service) {
+        this.service = service;
+    }
+
+    @PostMapping
+    public Product create(@RequestBody Product product) {
+        return service.create(product);
+    }
+
+    @GetMapping("/{id}")
+    public Optional<Product> get(@PathVariable Long id) {
+        return service.getById(id);
+    }
+
+    @PutMapping("/{id}")
+    public Product update(@PathVariable Long id, @RequestBody Product product) {
+        return service.update(id, product);
+    }
+
+    @PatchMapping("/{id}")
+    public Product patch(@PathVariable Long id, @RequestBody Product product) {
+        return service.patch(id, product);
+    }
+}
+
+
+3. product.java
+
+package com.example.demo.inventory.entity;
+
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "PRODUCTS")
+public class Product {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "PRODUCT_ID")
+    private Long productId;
+
+    private String name;
+    private Integer quantity;
+    private String stock;
+
+    @Column(name = "CREATED_TIMESTAMP")
+    private LocalDateTime createdTimestamp;
+
+    @Column(name = "UPDATED_TIMESTAMP")
+    private LocalDateTime updatedTimestamp;
+
+    // Getters & Setters
+
+    public Long getProductId() {
+        return productId;
+    }
+
+    public void setProductId(Long productId) {
+        this.productId = productId;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public Integer getQuantity() {
+        return quantity;
+    }
+
+    public void setQuantity(Integer quantity) {
+        this.quantity = quantity;
+    }
+
+    public String getStock() {
+        return stock;
+    }
+
+    public void setStock(String stock) {
+        this.stock = stock;
+    }
+
+    public LocalDateTime getCreatedTimestamp() {
+        return createdTimestamp;
+    }
+
+    public void setCreatedTimestamp(LocalDateTime createdTimestamp) {
+        this.createdTimestamp = createdTimestamp;
+    }
+
+    public LocalDateTime getUpdatedTimestamp() {
+        return updatedTimestamp;
+    }
+
+    public void setUpdatedTimestamp(LocalDateTime updatedTimestamp) {
+        this.updatedTimestamp = updatedTimestamp;
+    }
+}
+
+4. product repository.java
+
+package com.example.demo.inventory.repository;
+
+import com.example.demo.inventory.entity.Product;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ProductRepository extends JpaRepository<Product, Long> {
+}
+
+5. product service.java
+
+package com.example.demo.inventory.service;
+
+import com.example.demo.inventory.entity.Product;
+import com.example.demo.inventory.repository.ProductRepository;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+@Service
+public class ProductService {
+
+    private final ProductRepository repo;
+
+    public ProductService(ProductRepository repo) {
+        this.repo = repo;
+    }
+
+    // Create
+    public Product create(Product product) {
+        product.setCreatedTimestamp(LocalDateTime.now());
+        product.setUpdatedTimestamp(LocalDateTime.now());
+        return repo.save(product);
+    }
+
+    // Get by ID
+    public Optional<Product> getById(Long id) {
+        return repo.findById(id);
+    }
+
+    // Put update (Full)
+    public Product update(Long id, Product newData) {
+        return repo.findById(id).map(p -> {
+            p.setName(newData.getName());
+            p.setQuantity(newData.getQuantity());
+            p.setStock(newData.getStock());
+            p.setUpdatedTimestamp(LocalDateTime.now());
+            return repo.save(p);
+        }).orElseThrow();
+    }
+
+    // Patch update (Partial)
+    public Product patch(Long id, Product newData) {
+        return repo.findById(id).map(p -> {
+            if (newData.getName() != null) p.setName(newData.getName());
+            if (newData.getQuantity() != null) p.setQuantity(newData.getQuantity());
+            if (newData.getStock() != null) p.setStock(newData.getStock());
+            p.setUpdatedTimestamp(LocalDateTime.now());
+            return repo.save(p);
+        }).orElseThrow();
+    }
+
+}
+
+6. product management application tests.java
+
+package com.example.demo;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class ProductManagementApplicationTests {
+
+	@Test
+	void contextLoads() {
+	}
+
+}
+
+7. application properties
+
+spring.datasource.url=jdbc:oracle:thin:@localhost:1521:XE
+spring.datasource.username=hr
+spring.datasource.password=hr
+spring.datasource.driver-class-name=oracle.jdbc.OracleDriver
+
+spring.jpa.hibernate.ddl-auto=none
+spring.jpa.show-sql=true
+
+
+server.port=8086
+
+
